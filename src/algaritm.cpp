@@ -171,7 +171,29 @@ std::vector<bool> RobotAlgaritm::get_titan_limits()
     };
 }
 
-cv::Mat RobotAlgaritm::get_camera() 
+std::vector<bool> RobotAlgaritm::get_inputs()
+{
+    return {
+        algaritm_internal->inputs[0], algaritm_internal->inputs[1],
+        algaritm_internal->inputs[2], algaritm_internal->inputs[3]
+    };
+}
+
+std::vector<bool> RobotAlgaritm::get_outputs()
+{
+    return {
+        algaritm_internal->outputs[0], algaritm_internal->outputs[1],
+        algaritm_internal->outputs[2], algaritm_internal->outputs[3]
+    };
+}
+
+// pin is from 1 to 4 included
+void RobotAlgaritm::set_output(bool value, int pin)
+{
+    algaritm_internal->set_output(pin - 1, value);
+}
+
+cv::Mat RobotAlgaritm::get_camera()
 {
     return algaritm_internal->get_camera();
 }

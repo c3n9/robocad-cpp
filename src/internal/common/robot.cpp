@@ -44,7 +44,7 @@ const std::string currentDateTime() {
 
 void Robot::write_log(std::string s)
 {
-	log_mutex.lock();
+	std::lock_guard<std::mutex> lock(log_mutex);
 
 	if (!log_file.is_open()) return;
 
@@ -52,6 +52,4 @@ void Robot::write_log(std::string s)
     std::ostringstream oss;
     oss << currentDateTime() << " " << s;
     log_file << oss.str() << std::endl;
-
-	log_mutex.unlock();
 }

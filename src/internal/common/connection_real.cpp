@@ -34,13 +34,18 @@ ConnectionReal::ConnectionReal(Robot* robot, Updater* updater, RobotConfiguratio
     {
         system("sudo /home/pi/pi-blaster/pi-blaster --pcm");
     }
-    // robot info thread
+    // robot info thread (kept joinable so stop()/destructor can join it)
     robot_info_thread = new std::thread(&Updater::updater, updater);
-    robot_info_thread->detach();
 }
 
 ConnectionReal::~ConnectionReal()
 {
+    // make sure the info thread is stopped and joined before we tear down
+    if (robot_info_thread && robot_info_thread->joinable())
+    {
+        if (updater) updater->stop_robot_info_thread = true;
+        robot_info_thread->join();
+    }
     delete camera_instance;
     camera_instance = NULL;
     delete lidar_instance;
@@ -58,7 +63,8 @@ void ConnectionReal::stop()
     }
 
     updater->stop_robot_info_thread = true;
-    robot_info_thread->join();
+    if (robot_info_thread && robot_info_thread->joinable())
+        robot_info_thread->join();
 }
 
 cv::Mat ConnectionReal::get_camera()

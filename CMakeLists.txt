@@ -10,13 +10,15 @@ include_directories("include")
 include_directories("include/internal")
 include_directories("include/internal/common")
 
-add_library (robocad-cpp SHARED 
-    "src/shufflecad.cpp" 
-    "src/studica.cpp" 
-    "src/algaritm.cpp" 
-    "src/internal/studica_internal.cpp" 
-    "src/internal/algaritm_internal.cpp" 
-    "src/internal/common/connection_base.cpp" 
+add_library (robocad-cpp SHARED
+    "src/shufflecad.cpp"
+    "src/studica.cpp"
+    "src/algaritm.cpp"
+    "src/common.cpp"
+    "src/internal/studica_internal.cpp"
+    "src/internal/algaritm_internal.cpp"
+    "src/internal/common_internal.cpp"
+    "src/internal/common/connection_base.cpp"
     "src/internal/common/connection_real.cpp" 
     "src/internal/common/connection_sim.cpp" 
     "src/internal/common/lidar.cpp" 

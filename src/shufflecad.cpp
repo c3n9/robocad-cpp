@@ -51,8 +51,8 @@ public:
 
 class Shufflecad;
 class SocketInit;
-class ListenPort;
-class TalkPort;
+class ShflListenPort;
+class ShflTalkPort;
 
 class ConnectionHelper
 {
@@ -68,13 +68,13 @@ private:
     Shufflecad* shufflecad;
     Robot* robot;
 
-    TalkPort* out_variables_channel;
-    ListenPort* in_variables_channel;
-    TalkPort* chart_variables_channel;
-    TalkPort* outcad_variables_channel;
-    TalkPort* rpi_variables_channel;
-    TalkPort* camera_variables_channel;
-    ListenPort* joy_variables_channel;
+    ShflTalkPort* out_variables_channel;
+    ShflListenPort* in_variables_channel;
+    ShflTalkPort* chart_variables_channel;
+    ShflTalkPort* outcad_variables_channel;
+    ShflTalkPort* rpi_variables_channel;
+    ShflTalkPort* camera_variables_channel;
+    ShflListenPort* joy_variables_channel;
 
     SocketInit net_guard;
     std::atomic<int> camera_toggler = 0;
@@ -225,7 +225,7 @@ protected:
     int port;
     std::atomic<bool> stop_thread{false};
     std::thread worker;
-    socket_t server_fd = INVALID_SOCKET;
+    socket_t server_fd = INVALID_SCT;
     float delay;
     std::function<void()> event_handler;
 
@@ -234,24 +234,24 @@ public:
     std::vector<uint8_t> out_bytes;
     std::string str_from_client = "-1";
 
-    BasePort(int p, std::function<void()> handler, float d) 
+    BasePort(int p, std::function<void()> handler, float d)
         : port(p), event_handler(handler), delay(d) {}
 
     virtual ~BasePort() { stop(); }
 
     void stop() {
         stop_thread = true;
-        if (server_fd != INVALID_SOCKET) {
+        if (server_fd != INVALID_SCT) {
             shutdown(server_fd, SHUT_RDWR);
             closesocket(server_fd);
-            server_fd = INVALID_SOCKET;
+            server_fd = INVALID_SCT;
         }
         if (worker.joinable()) worker.join();
     }
 
     socket_t wait_for_connection() {
         server_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (server_fd == INVALID_SOCKET) return INVALID_SOCKET;
+        if (server_fd == INVALID_SCT) return INVALID_SCT;
 
         int opt = 1;
         setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
@@ -261,7 +261,7 @@ public:
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port);
 
-        if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) return INVALID_SOCKET;
+        if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) == SCT_ERROR) return INVALID_SCT;
         listen(server_fd, 1);
 
         socket_t client = accept(server_fd, nullptr, nullptr);
@@ -269,16 +269,16 @@ public:
     }
 };
 
-class TalkPort : public BasePort {
+class ShflTalkPort : public BasePort {
     bool is_camera;
 public:
-    TalkPort(int p, std::function<void()> h, float d, bool cam = false) 
+    ShflTalkPort(int p, std::function<void()> h, float d, bool cam = false)
         : BasePort(p, h, d), is_camera(cam) {}
 
     void start_talking() {
         worker = std::thread([this]() {
             socket_t client_fd = wait_for_connection();
-            if (client_fd == INVALID_SOCKET) return;
+            if (client_fd == INVALID_SCT) return;
 
             SplitFrames handler(client_fd);
             while (!stop_thread) {
@@ -301,19 +301,19 @@ public:
     }
 };
 
-class ListenPort : public BasePort {
+class ShflListenPort : public BasePort {
 public:
-    ListenPort(int p, std::function<void()> h, float d) : BasePort(p, h, d) {}
+    ShflListenPort(int p, std::function<void()> h, float d) : BasePort(p, h, d) {}
 
     void start_listening() {
         worker = std::thread([this]() {
             socket_t client_fd = wait_for_connection();
-            if (client_fd == INVALID_SOCKET) return;
+            if (client_fd == INVALID_SCT) return;
 
             SplitFrames handler(client_fd);
             while (!stop_thread) {
                 if (!handler.write_string("Waiting for data")) break;
-                
+
                 out_string = handler.read_string();
                 if (event_handler) event_handler();
 
@@ -330,13 +330,13 @@ public:
 ConnectionHelper::ConnectionHelper(Shufflecad* sc, Robot* r) : shufflecad(sc), robot(r) {
     SocketInit net_guard;
     
-    out_variables_channel = new TalkPort(63253, std::bind(&ConnectionHelper::on_out_vars, this), 0.004f);
-    in_variables_channel = new ListenPort(63258, std::bind(&ConnectionHelper::on_in_vars, this), 0.004f);
-    chart_variables_channel = new TalkPort(63255, std::bind(&ConnectionHelper::on_in_vars, this), 0.002f);
-    outcad_variables_channel = new TalkPort(63257, std::bind(&ConnectionHelper::on_in_vars, this), 0.1f);
-    rpi_variables_channel = new TalkPort(63256, std::bind(&ConnectionHelper::on_in_vars, this), 0.5f);
-    camera_variables_channel = new TalkPort(63254, std::bind(&ConnectionHelper::on_camera_vars, this), 0.03f, true);
-    joy_variables_channel = new ListenPort(63259, std::bind(&ConnectionHelper::on_camera_vars, this), 0.004f);
+    out_variables_channel = new ShflTalkPort(63253, std::bind(&ConnectionHelper::on_out_vars, this), 0.004f);
+    in_variables_channel = new ShflListenPort(63258, std::bind(&ConnectionHelper::on_in_vars, this), 0.004f);
+    chart_variables_channel = new ShflTalkPort(63255, std::bind(&ConnectionHelper::on_chart_vars, this), 0.002f);
+    outcad_variables_channel = new ShflTalkPort(63257, std::bind(&ConnectionHelper::on_outcad_vars, this), 0.1f);
+    rpi_variables_channel = new ShflTalkPort(63256, std::bind(&ConnectionHelper::on_rpi_vars, this), 0.5f);
+    camera_variables_channel = new ShflTalkPort(63254, std::bind(&ConnectionHelper::on_camera_vars, this), 0.03f, true);
+    joy_variables_channel = new ShflListenPort(63259, std::bind(&ConnectionHelper::on_joy_vars, this), 0.004f);
 
     this->start();
 }
@@ -428,10 +428,9 @@ void ConnectionHelper::on_chart_vars() {
 
 void ConnectionHelper::on_outcad_vars() {
     std::lock_guard<std::mutex> lock(data_mutex);
-    auto print_arr = shufflecad->get_print_array();
-    if (!print_arr.empty()) {
-        outcad_variables_channel->out_string = join(print_arr, "&");
-        shufflecad->clear_print_array();
+    if (!shufflecad->print_array.empty()) {
+        outcad_variables_channel->out_string = join(shufflecad->print_array, "&");
+        shufflecad->print_array.clear();  // clear directly; clear_print_array() would re-lock data_mutex
     } else {
         outcad_variables_channel->out_string = "null";
     }

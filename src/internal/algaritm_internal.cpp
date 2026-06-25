@@ -26,21 +26,40 @@ static long get_time_units() {
 // --- RobocadConnection ---
 
 #pragma pack(push, 1)
-// Struct for Robocad: 14 float (56 bytes)
-struct RobocadTxPacket {
-    float speeds[4];
-    float hcdio[10];
+// Struct for Robocad TX: 28 float (112 bytes) -> matches Python struct.pack('28f')
+struct RobocadAlgTxPacket {
+    float speeds[4];          //  0..3  motor speeds
+    float servo_angles[8];    //  4..11 servo angles
+    float additional_servo_1; // 12
+    float additional_servo_2; // 13
+    float step1_steps;        // 14
+    float step2_steps;        // 15
+    float step1_steps_per_s;  // 16
+    float step2_steps_per_s;  // 17
+    float step1_direction;    // 18 (1/0)
+    float step2_direction;    // 19 (1/0)
+    float use_pid;            // 20 (1/0)
+    float p_pid;              // 21
+    float i_pid;              // 22
+    float d_pid;              // 23
+    float outputs[4];         // 24..27 (1/0)
 };
 
-// Struct for Robocad: <4i2f4Hf16B (52 bytes)
-struct RobocadRxPacket {
-    int32_t encoders[4];
-    float ultrasound[2];
-    uint16_t analog[4];
-    float yaw;
-    uint8_t flex_and_limits[16]; 
+// Struct for Robocad RX: <4i4f8H3f14B (74 bytes) -> matches Python struct.unpack
+struct RobocadAlgRxPacket {
+    int32_t encoders[4];      // 0..3
+    float ultrasound[4];      // 4..7
+    uint16_t analog[8];       // 8..15
+    float yaw;                // 16
+    float pitch;              // 17
+    float roll;               // 18
+    // 14 bytes: 8 limits, 4 inputs, 2 step-busy
+    uint8_t flags[14];        // 19..32
 };
 #pragma pack(pop)
+
+static_assert(sizeof(RobocadAlgTxPacket) == 112, "Algaritm TX packet must be 112 bytes");
+static_assert(sizeof(RobocadAlgRxPacket) == 74, "Algaritm RX packet must be 74 bytes");
 
 class RobocadConnectionAlgaritm {
 private:
@@ -51,6 +70,8 @@ private:
     ConnectionSim* connection;
 
 public:
+    ~RobocadConnectionAlgaritm() { stop(); }
+
     void start(ConnectionSim* conn, Robot* r, AlgaritmInternal* i) {
         this->connection = conn;
         this->robot = r;
@@ -59,7 +80,7 @@ public:
         robot->power = 12.0; // todo: control from ConnectionSim from robocad
 
         stop_thread = false;
-        // update_thread = std::thread(&RobocadConnectionAlgaritm::update_loop, this);
+        update_thread = std::thread(&RobocadConnectionAlgaritm::update_loop, this);
     }
 
     void stop() {
@@ -68,7 +89,78 @@ public:
     }
 
     void update_loop() {
-        // TODO:
+        while (!stop_thread) {
+            // SET DATA
+            RobocadAlgTxPacket tx{};
+            tx.speeds[0] = robot_internal->speed_motor_0;
+            tx.speeds[1] = robot_internal->speed_motor_1;
+            tx.speeds[2] = robot_internal->speed_motor_2;
+            tx.speeds[3] = robot_internal->speed_motor_3;
+            for (int i = 0; i < 8; i++) tx.servo_angles[i] = robot_internal->servo_angles[i];
+            tx.additional_servo_1 = robot_internal->additional_servo_1;
+            tx.additional_servo_2 = robot_internal->additional_servo_2;
+            tx.step1_steps = static_cast<float>(robot_internal->step_motor_1_steps);
+            tx.step2_steps = static_cast<float>(robot_internal->step_motor_2_steps);
+            tx.step1_steps_per_s = static_cast<float>(robot_internal->step_motor_1_steps_per_s);
+            tx.step2_steps_per_s = static_cast<float>(robot_internal->step_motor_2_steps_per_s);
+            tx.step1_direction = robot_internal->step_motor_1_direction ? 1.0f : 0.0f;
+            tx.step2_direction = robot_internal->step_motor_2_direction ? 1.0f : 0.0f;
+            tx.use_pid = robot_internal->use_pid ? 1.0f : 0.0f;
+            tx.p_pid = robot_internal->p_pid;
+            tx.i_pid = robot_internal->i_pid;
+            tx.d_pid = robot_internal->d_pid;
+            for (int i = 0; i < 4; i++) tx.outputs[i] = robot_internal->outputs[i] ? 1.0f : 0.0f;
+
+            connection->set_data(std::vector<uint8_t>(
+                reinterpret_cast<uint8_t*>(&tx),
+                reinterpret_cast<uint8_t*>(&tx) + sizeof(tx)));
+
+            // GET DATA
+            auto raw_data = connection->get_data();
+            if (raw_data.size() >= sizeof(RobocadAlgRxPacket)) {
+                RobocadAlgRxPacket rx{};
+                std::memcpy(&rx, raw_data.data(), sizeof(rx));
+
+                robot_internal->enc_motor_0 = rx.encoders[0];
+                robot_internal->enc_motor_1 = rx.encoders[1];
+                robot_internal->enc_motor_2 = rx.encoders[2];
+                robot_internal->enc_motor_3 = rx.encoders[3];
+                robot_internal->ultrasound_1 = rx.ultrasound[0];
+                robot_internal->ultrasound_2 = rx.ultrasound[1];
+                robot_internal->ultrasound_3 = rx.ultrasound[2];
+                robot_internal->ultrasound_4 = rx.ultrasound[3];
+                robot_internal->analog_1 = rx.analog[0];
+                robot_internal->analog_2 = rx.analog[1];
+                robot_internal->analog_3 = rx.analog[2];
+                robot_internal->analog_4 = rx.analog[3];
+                robot_internal->analog_5 = rx.analog[4];
+                robot_internal->analog_6 = rx.analog[5];
+                robot_internal->analog_7 = rx.analog[6];
+                robot_internal->analog_8 = rx.analog[7];
+                robot_internal->yaw = rx.yaw;
+                robot_internal->pitch = rx.pitch;
+                robot_internal->roll = rx.roll;
+
+                robot_internal->limit_h_0 = rx.flags[0] == 1;
+                robot_internal->limit_l_0 = rx.flags[1] == 1;
+                robot_internal->limit_h_1 = rx.flags[2] == 1;
+                robot_internal->limit_l_1 = rx.flags[3] == 1;
+                robot_internal->limit_h_2 = rx.flags[4] == 1;
+                robot_internal->limit_l_2 = rx.flags[5] == 1;
+                robot_internal->limit_h_3 = rx.flags[6] == 1;
+                robot_internal->limit_l_3 = rx.flags[7] == 1;
+
+                robot_internal->inputs[0] = rx.flags[8] == 1;
+                robot_internal->inputs[1] = rx.flags[9] == 1;
+                robot_internal->inputs[2] = rx.flags[10] == 1;
+                robot_internal->inputs[3] = rx.flags[11] == 1;
+
+                robot_internal->is_step_1_busy = rx.flags[12] == 1;
+                robot_internal->is_step_2_busy = rx.flags[13] == 1;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(4));
+        }
     }
 };
 
@@ -85,6 +177,7 @@ private:
 
 public:
     TitanCOMAlgaritm() : connection(nullptr), robot(nullptr), robot_internal(nullptr), conf(nullptr) {}
+    ~TitanCOMAlgaritm() { stop(); }
 
     void start_com(ConnectionReal* conn, Robot* rb, AlgaritmInternal* internal, DefaultAlgaritmConfiguration* cfg) {
         connection = conn;
@@ -142,6 +235,7 @@ private:
     }
 
     void set_up_rx_data(const std::vector<uint8_t>& data) {
+        if (data.size() < 41) return;
         if (data[0] == 1) {
             if (data[40] == 222) {
                 robot_internal->enc_motor_0 = (data[4] << 24) | (data[3] << 16) | (data[2] << 8) | data[1];
@@ -149,20 +243,21 @@ private:
                 robot_internal->enc_motor_2 = (data[12] << 24) | (data[11] << 16) | (data[10] << 8) | data[9];
                 robot_internal->enc_motor_3 = (data[16] << 24) | (data[15] << 16) | (data[14] << 8) | data[13];
 
-                robot_internal->limit_l_0 = access_bit(data[17], 0);
-                robot_internal->limit_h_0 = access_bit(data[17], 1);
-                robot_internal->limit_l_1 = access_bit(data[17], 2);
-                robot_internal->limit_h_1 = access_bit(data[17], 3);
-                robot_internal->limit_l_2 = access_bit(data[17], 4);
-                robot_internal->limit_h_2 = access_bit(data[17], 5);
-                robot_internal->limit_l_3 = access_bit(data[17], 6);
-                robot_internal->limit_h_3 = access_bit(data[17], 7);
+                // bit order matches Python: limit_l_0 = bit 7 ... limit_h_3 = bit 0
+                robot_internal->limit_l_0 = access_bit(data[17], 7);
+                robot_internal->limit_h_0 = access_bit(data[17], 6);
+                robot_internal->limit_l_1 = access_bit(data[17], 5);
+                robot_internal->limit_h_1 = access_bit(data[17], 4);
+                robot_internal->limit_l_2 = access_bit(data[17], 3);
+                robot_internal->limit_h_2 = access_bit(data[17], 2);
+                robot_internal->limit_l_3 = access_bit(data[17], 1);
+                robot_internal->limit_h_3 = access_bit(data[17], 0);
 
                 robot_internal->is_step_1_busy = (data[18] != 0);
                 robot_internal->is_step_2_busy = (data[19] != 0);
             }
         }
-        else 
+        else
         {
             robot->write_log("received wrong data");
         }
@@ -182,10 +277,11 @@ private:
         tx_data[3] = pack_speed(robot_internal->speed_motor_2);
         tx_data[4] = pack_speed(robot_internal->speed_motor_3);
 
+        // bits: '11' + step1_dir + step2_dir + use_pid + '001'
         uint8_t dir_byte = 0b11000001;
-        if (robot_internal->step_motor_1_direction >= 0) dir_byte |= (1 << 5);
-        if (robot_internal->step_motor_2_direction >= 0) dir_byte |= (1 << 4);
-        if (robot_internal->use_pid >= 0) dir_byte |= (1 << 3);
+        if (robot_internal->step_motor_1_direction) dir_byte |= (1 << 5);
+        if (robot_internal->step_motor_2_direction) dir_byte |= (1 << 4);
+        if (robot_internal->use_pid)                dir_byte |= (1 << 3);
         tx_data[5] = dir_byte;
 
         tx_data[6] = static_cast<uint8_t>(robot_internal->additional_servo_1);
@@ -230,6 +326,7 @@ private:
 
 public:
     VMXSPIAlgaritm() : connection(nullptr), robot(nullptr), robot_internal(nullptr), conf(nullptr) {}
+    ~VMXSPIAlgaritm() { stop(); }
 
     void start_spi(ConnectionReal* conn, Robot* rb, AlgaritmInternal* internal, DefaultAlgaritmConfiguration* cfg) {
         connection = conn;
@@ -308,6 +405,11 @@ private:
             robot_internal->ultrasound_3 = us3_ui / 100.0;
             int us4_ui = (data[10] << 8) | data[9];
             robot_internal->ultrasound_4 = us4_ui / 100.0;
+
+            robot_internal->inputs[0] = access_bit(data[11], 0);
+            robot_internal->inputs[1] = access_bit(data[11], 1);
+            robot_internal->inputs[2] = access_bit(data[11], 2);
+            robot_internal->inputs[3] = access_bit(data[11], 3);
         } else if (data[0] == 3) {
             int yaw_ui = (data[2] << 8) | data[1];
             double new_yaw = (yaw_ui / 100.0) * (access_bit(data[7], 1) ? 1.0 : -1.0);
@@ -327,7 +429,7 @@ private:
             robot_internal->roll_unlim = robot_internal->roll_unlim + delta_roll;
             robot_internal->roll = new_roll;
 
-            double power = ((data[8] << 8) | data[7]) / 100.0;
+            double power = ((data[9] << 8) | data[8]) / 100.0;
             robot->power = power;
         }
     }
@@ -345,6 +447,14 @@ private:
             tx_list[6] = static_cast<uint8_t>(robot_internal->servo_angles[5]);
             tx_list[7] = static_cast<uint8_t>(robot_internal->servo_angles[6]);
             tx_list[8] = static_cast<uint8_t>(robot_internal->servo_angles[7]);
+
+            // bits: '1' + out0 + out1 + out2 + out3 + '001'
+            uint8_t out_byte = 0b10000001;
+            if (robot_internal->outputs[0]) out_byte |= (1 << 6);
+            if (robot_internal->outputs[1]) out_byte |= (1 << 5);
+            if (robot_internal->outputs[2]) out_byte |= (1 << 4);
+            if (robot_internal->outputs[3]) out_byte |= (1 << 3);
+            tx_list[9] = out_byte;
         }
         return tx_list;
     }
@@ -364,16 +474,21 @@ private:
 
 AlgaritmInternal::AlgaritmInternal(Robot* robot, RobotConfiguration* conf) : robot(robot) 
 {
-    if (robot->on_real_robot) 
+    titan_com = nullptr;
+    vmx_spi = nullptr;
+    robocad_connection = nullptr;
+    updater = nullptr;
+
+    if (robot->on_real_robot)
     {
-        updater = new RpiUpdater(robot);
+        updater = new RepkaUpdater(robot);
         connection = new ConnectionReal(robot, updater, conf);
         titan_com = new TitanCOMAlgaritm();
         titan_com->start_com((ConnectionReal*)connection, robot, this, (DefaultAlgaritmConfiguration*)conf);
         vmx_spi = new VMXSPIAlgaritm();
         vmx_spi->start_spi((ConnectionReal*)connection, robot, this, (DefaultAlgaritmConfiguration*)conf);
-    } 
-    else 
+    }
+    else
     {
         connection = new ConnectionSim(robot);
         robocad_connection = new RobocadConnectionAlgaritm();
@@ -381,30 +496,43 @@ AlgaritmInternal::AlgaritmInternal(Robot* robot, RobotConfiguration* conf) : rob
     }
 }
 
-AlgaritmInternal::~AlgaritmInternal() 
+AlgaritmInternal::~AlgaritmInternal()
 {
-    delete connection;
-    connection = NULL;
-    delete updater;
-    updater = NULL;
+    // stop worker threads BEFORE deleting the connection they use
+    stop();
 
-    if (robot->on_real_robot) 
+    if (robot->on_real_robot)
     {
         delete titan_com;
         titan_com = NULL;
         delete vmx_spi;
         vmx_spi = NULL;
-    } 
-    else 
+    }
+    else
     {
         delete robocad_connection;
         robocad_connection = NULL;
     }
+
+    delete connection;
+    connection = NULL;
+    delete updater;
+    updater = NULL;
 }
 
-void AlgaritmInternal::stop() 
+void AlgaritmInternal::stop()
 {
-    connection->stop();
+    // stop worker threads first so they no longer touch the connection
+    if (robot->on_real_robot)
+    {
+        if (titan_com) titan_com->stop();
+        if (vmx_spi) vmx_spi->stop();
+    }
+    else
+    {
+        if (robocad_connection) robocad_connection->stop();
+    }
+    if (connection) connection->stop();
 }
 
 cv::Mat AlgaritmInternal::get_camera() 
@@ -420,6 +548,11 @@ std::vector<float> AlgaritmInternal::get_lidar()
 void AlgaritmInternal::set_servo_angle(float angle, int pin)
 {
     servo_angles[pin] = angle;
+}
+
+void AlgaritmInternal::set_output(int pin, bool value)
+{
+    if (pin >= 0 && pin < 4) outputs[pin] = value;
 }
 
 void AlgaritmInternal::step_motor_move(int num, int steps, int steps_per_second, bool direction)

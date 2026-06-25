@@ -32,6 +32,9 @@ public:
 
     std::atomic<bool> limit_l_0 = false, limit_h_0 = false, limit_l_1 = false, limit_h_1 = false, limit_l_2 = false, limit_h_2 = false, limit_l_3 = false, limit_h_3 = false;
 
+    std::atomic<bool> inputs[4] = {false, false, false, false};
+    std::atomic<bool> outputs[4] = {false, false, false, false};
+
     AlgaritmInternal(Robot* robot, RobotConfiguration* conf);
     ~AlgaritmInternal();
 
@@ -40,6 +43,7 @@ public:
     std::vector<float> get_lidar();
 
     void set_servo_angle(float angle, int pin);
+    void set_output(int pin, bool value);
     void step_motor_move(int num, int steps, int steps_per_second, bool direction);
 
 private:

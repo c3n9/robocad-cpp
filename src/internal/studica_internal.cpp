@@ -50,6 +50,8 @@ private:
     ConnectionSim* connection;
 
 public:
+    ~RobocadConnectionStudica() { stop(); }
+
     void start(ConnectionSim* conn, Robot* r, StudicaInternal* i) {
         this->connection = conn;
         this->robot = r;
@@ -132,6 +134,7 @@ private:
 
 public:
     TitanCOMStudica() : connection(nullptr), robot(nullptr), robot_internal(nullptr), conf(nullptr) {}
+    ~TitanCOMStudica() { stop(); }
 
     void start_com(ConnectionReal* conn, Robot* rb, StudicaInternal* internal, DefaultStudicaConfiguration* cfg) {
         connection = conn;
@@ -275,6 +278,7 @@ private:
 
 public:
     VMXSPIStudica() : connection(nullptr), robot(nullptr), robot_internal(nullptr), conf(nullptr) {}
+    ~VMXSPIStudica() { stop(); }
 
     void start_spi(ConnectionReal* conn, Robot* rb, StudicaInternal* internal, DefaultStudicaConfiguration* cfg) {
         connection = conn;
@@ -388,9 +392,14 @@ private:
 
 // ------------- StudicaInternal -------------
 
-StudicaInternal::StudicaInternal(Robot* robot, RobotConfiguration* conf) : robot(robot) 
+StudicaInternal::StudicaInternal(Robot* robot, RobotConfiguration* conf) : robot(robot)
 {
-    if (robot->on_real_robot) 
+    titan_com = nullptr;
+    vmx_spi = nullptr;
+    robocad_connection = nullptr;
+    updater = nullptr;
+
+    if (robot->on_real_robot)
     {
         updater = new RpiUpdater(robot);
         connection = new ConnectionReal(robot, updater, conf);
@@ -407,30 +416,43 @@ StudicaInternal::StudicaInternal(Robot* robot, RobotConfiguration* conf) : robot
     }
 }
 
-StudicaInternal::~StudicaInternal() 
+StudicaInternal::~StudicaInternal()
 {
-    delete connection;
-    connection = NULL;
-    delete updater;
-    updater = NULL;
+    // stop worker threads BEFORE deleting the connection they use
+    stop();
 
-    if (robot->on_real_robot) 
+    if (robot->on_real_robot)
     {
         delete titan_com;
         titan_com = NULL;
         delete vmx_spi;
         vmx_spi = NULL;
-    } 
-    else 
+    }
+    else
     {
         delete robocad_connection;
         robocad_connection = NULL;
     }
+
+    delete connection;
+    connection = NULL;
+    delete updater;
+    updater = NULL;
 }
 
-void StudicaInternal::stop() 
+void StudicaInternal::stop()
 {
-    connection->stop();
+    // stop worker threads first so they no longer touch the connection
+    if (robot->on_real_robot)
+    {
+        if (titan_com) titan_com->stop();
+        if (vmx_spi) vmx_spi->stop();
+    }
+    else
+    {
+        if (robocad_connection) robocad_connection->stop();
+    }
+    if (connection) connection->stop();
 }
 
 cv::Mat StudicaInternal::get_camera() 

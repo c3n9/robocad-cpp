@@ -219,8 +219,9 @@ public:
                 if (!send_all(sct, to_send.data(), len)) break;
             }
 
+            // server replies with two 4-byte acks (8 bytes total); read them fully
             char dummy[8];
-            if (recv(sct, dummy, 8, 0) <= 0) break;
+            if (!recv_all(sct, dummy, 8)) break;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(4));
         }

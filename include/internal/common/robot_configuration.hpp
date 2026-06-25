@@ -41,3 +41,9 @@ public:
     uint32_t vmx_speed = 1000000;
     uint8_t vmx_mode = 0;
 };
+
+class DefaultCommonConfiguration : public RobotConfiguration
+{
+public:
+    DefaultCommonConfiguration() {}
+};

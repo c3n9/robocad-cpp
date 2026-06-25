@@ -3,6 +3,7 @@
 #include "robot_configuration.hpp"
 #include <string>
 #include <mutex>
+#include <atomic>
 #include <fstream>
 	
 class RobotInfo

@@ -9,6 +9,9 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <map>
+#include <string>
+#include <algorithm>
 
 class ShuffleVariable;
 class CameraVariable;
@@ -96,6 +99,7 @@ public:
         std::string val = "";
         for (size_t i = 0; i < values.size(); i++) {
             val += std::to_string(i);
+            val += "+";
             val += std::to_string(values[i]);
             if (i != values.size() - 1) val += "+";
         }
@@ -110,7 +114,14 @@ public:
     float get_float()
     {
         std::lock_guard<std::mutex> lock(this->data_mutex);
-        return std::stof(this->value);
+        if (this->value.empty()) return 0.0f;
+        std::string v = this->value;
+        std::replace(v.begin(), v.end(), ',', '.');  // accept comma decimal separator
+        try {
+            return std::stof(v);
+        } catch (...) {
+            return 0.0f;
+        }
     }
     std::string get_string()
     {
