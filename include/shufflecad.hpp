@@ -34,7 +34,7 @@ public:
 
     void print_to_log(std::string message, 
                       std::string message_type = LOG_INFO, 
-                      std::string color = "#cccccc");
+                      std::string color = "#808080");
 
     std::vector<ShuffleVariable*> variables_array;
     std::vector<CameraVariable*> camera_variables_array;
