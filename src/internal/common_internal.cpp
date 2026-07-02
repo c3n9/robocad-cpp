@@ -36,9 +36,31 @@ class RobocadConnectionCommon {
 private:
     std::thread update_thread;
     std::atomic<bool> stop_thread{false};
+    std::atomic<bool> stopped{false};
     CommonRobotInternal* robot_internal;
     Robot* robot;
     ConnectionSim* connection;
+
+    // Build the 88-byte TX packet from the latest (atomic) robot state.
+    std::vector<uint8_t> build_tx() {
+        CommonTxPacket tx{};
+        tx.speeds[0] = robot_internal->speed_motor_0;
+        tx.speeds[1] = robot_internal->speed_motor_1;
+        tx.speeds[2] = robot_internal->speed_motor_2;
+        tx.speeds[3] = robot_internal->speed_motor_3;
+        tx.speeds[4] = robot_internal->speed_motor_4;
+        tx.speeds[5] = robot_internal->speed_motor_5;
+        tx.speeds[6] = robot_internal->speed_motor_6;
+        tx.speeds[7] = robot_internal->speed_motor_7;
+        for (int i = 0; i < 10; i++) tx.servo[i] = robot_internal->servo_values[i];
+        tx.leds[0] = robot_internal->led_0 ? 1.0f : 0.0f;
+        tx.leds[1] = robot_internal->led_1 ? 1.0f : 0.0f;
+        tx.leds[2] = robot_internal->led_2 ? 1.0f : 0.0f;
+        tx.leds[3] = robot_internal->led_3 ? 1.0f : 0.0f;
+        return std::vector<uint8_t>(
+            reinterpret_cast<uint8_t*>(&tx),
+            reinterpret_cast<uint8_t*>(&tx) + sizeof(tx));
+    }
 
 public:
     ~RobocadConnectionCommon() { stop(); }
@@ -55,31 +77,24 @@ public:
     }
 
     void stop() {
+        if (stopped.exchange(true)) return;
         stop_thread = true;
         if (update_thread.joinable()) update_thread.join();
+
+        // The motor command set just before shutdown may still be sitting in the
+        // async TX pipeline (update loop -> talk channel, ~4 ms each). Push the
+        // latest state once more and give the talk channel a moment to transmit
+        // it before it is torn down, so a "set speed then return" is not lost.
+        if (connection) {
+            connection->set_data(build_tx());
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
     }
 
     void update_loop() {
         while (!stop_thread) {
             // SET DATA
-            CommonTxPacket tx{};
-            tx.speeds[0] = robot_internal->speed_motor_0;
-            tx.speeds[1] = robot_internal->speed_motor_1;
-            tx.speeds[2] = robot_internal->speed_motor_2;
-            tx.speeds[3] = robot_internal->speed_motor_3;
-            tx.speeds[4] = robot_internal->speed_motor_4;
-            tx.speeds[5] = robot_internal->speed_motor_5;
-            tx.speeds[6] = robot_internal->speed_motor_6;
-            tx.speeds[7] = robot_internal->speed_motor_7;
-            for (int i = 0; i < 10; i++) tx.servo[i] = robot_internal->servo_values[i];
-            tx.leds[0] = robot_internal->led_0 ? 1.0f : 0.0f;
-            tx.leds[1] = robot_internal->led_1 ? 1.0f : 0.0f;
-            tx.leds[2] = robot_internal->led_2 ? 1.0f : 0.0f;
-            tx.leds[3] = robot_internal->led_3 ? 1.0f : 0.0f;
-
-            connection->set_data(std::vector<uint8_t>(
-                reinterpret_cast<uint8_t*>(&tx),
-                reinterpret_cast<uint8_t*>(&tx) + sizeof(tx)));
+            connection->set_data(build_tx());
 
             // GET DATA
             auto raw_data = connection->get_data();

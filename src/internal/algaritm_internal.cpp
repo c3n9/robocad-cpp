@@ -65,9 +65,36 @@ class RobocadConnectionAlgaritm {
 private:
     std::thread update_thread;
     std::atomic<bool> stop_thread{false};
+    std::atomic<bool> stopped{false};
     AlgaritmInternal* robot_internal;
     Robot* robot;
     ConnectionSim* connection;
+
+    // Build the 112-byte TX packet from the latest (atomic) robot state.
+    std::vector<uint8_t> build_tx() {
+        RobocadAlgTxPacket tx{};
+        tx.speeds[0] = robot_internal->speed_motor_0;
+        tx.speeds[1] = robot_internal->speed_motor_1;
+        tx.speeds[2] = robot_internal->speed_motor_2;
+        tx.speeds[3] = robot_internal->speed_motor_3;
+        for (int i = 0; i < 8; i++) tx.servo_angles[i] = robot_internal->servo_angles[i];
+        tx.additional_servo_1 = robot_internal->additional_servo_1;
+        tx.additional_servo_2 = robot_internal->additional_servo_2;
+        tx.step1_steps = static_cast<float>(robot_internal->step_motor_1_steps);
+        tx.step2_steps = static_cast<float>(robot_internal->step_motor_2_steps);
+        tx.step1_steps_per_s = static_cast<float>(robot_internal->step_motor_1_steps_per_s);
+        tx.step2_steps_per_s = static_cast<float>(robot_internal->step_motor_2_steps_per_s);
+        tx.step1_direction = robot_internal->step_motor_1_direction ? 1.0f : 0.0f;
+        tx.step2_direction = robot_internal->step_motor_2_direction ? 1.0f : 0.0f;
+        tx.use_pid = robot_internal->use_pid ? 1.0f : 0.0f;
+        tx.p_pid = robot_internal->p_pid;
+        tx.i_pid = robot_internal->i_pid;
+        tx.d_pid = robot_internal->d_pid;
+        for (int i = 0; i < 4; i++) tx.outputs[i] = robot_internal->outputs[i] ? 1.0f : 0.0f;
+        return std::vector<uint8_t>(
+            reinterpret_cast<uint8_t*>(&tx),
+            reinterpret_cast<uint8_t*>(&tx) + sizeof(tx));
+    }
 
 public:
     ~RobocadConnectionAlgaritm() { stop(); }
@@ -84,36 +111,24 @@ public:
     }
 
     void stop() {
+        if (stopped.exchange(true)) return;
         stop_thread = true;
         if (update_thread.joinable()) update_thread.join();
+
+        // The motor command set just before shutdown may still be sitting in the
+        // async TX pipeline (update loop -> talk channel, ~4 ms each). Push the
+        // latest state once more and give the talk channel a moment to transmit
+        // it before it is torn down, so a "set speed then return" is not lost.
+        if (connection) {
+            connection->set_data(build_tx());
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
     }
 
     void update_loop() {
         while (!stop_thread) {
             // SET DATA
-            RobocadAlgTxPacket tx{};
-            tx.speeds[0] = robot_internal->speed_motor_0;
-            tx.speeds[1] = robot_internal->speed_motor_1;
-            tx.speeds[2] = robot_internal->speed_motor_2;
-            tx.speeds[3] = robot_internal->speed_motor_3;
-            for (int i = 0; i < 8; i++) tx.servo_angles[i] = robot_internal->servo_angles[i];
-            tx.additional_servo_1 = robot_internal->additional_servo_1;
-            tx.additional_servo_2 = robot_internal->additional_servo_2;
-            tx.step1_steps = static_cast<float>(robot_internal->step_motor_1_steps);
-            tx.step2_steps = static_cast<float>(robot_internal->step_motor_2_steps);
-            tx.step1_steps_per_s = static_cast<float>(robot_internal->step_motor_1_steps_per_s);
-            tx.step2_steps_per_s = static_cast<float>(robot_internal->step_motor_2_steps_per_s);
-            tx.step1_direction = robot_internal->step_motor_1_direction ? 1.0f : 0.0f;
-            tx.step2_direction = robot_internal->step_motor_2_direction ? 1.0f : 0.0f;
-            tx.use_pid = robot_internal->use_pid ? 1.0f : 0.0f;
-            tx.p_pid = robot_internal->p_pid;
-            tx.i_pid = robot_internal->i_pid;
-            tx.d_pid = robot_internal->d_pid;
-            for (int i = 0; i < 4; i++) tx.outputs[i] = robot_internal->outputs[i] ? 1.0f : 0.0f;
-
-            connection->set_data(std::vector<uint8_t>(
-                reinterpret_cast<uint8_t*>(&tx),
-                reinterpret_cast<uint8_t*>(&tx) + sizeof(tx)));
+            connection->set_data(build_tx());
 
             // GET DATA
             auto raw_data = connection->get_data();
