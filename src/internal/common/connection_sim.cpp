@@ -44,7 +44,10 @@ cv::Mat ConnectionSim::get_camera()
         cv::Mat img(480, 640, CV_8UC3, data.data());
         cv::Mat img_bgr;
         cv::cvtColor(img, img_bgr, cv::COLOR_RGB2BGR);
-        return img_bgr;
+        cv::Mat rotated, flipped;
+        cv::rotate(img_bgr, rotated, cv::ROTATE_180);
+        cv::flip(rotated, flipped, 1);
+        return flipped;
     }
     return cv::Mat();
 }

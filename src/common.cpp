@@ -85,14 +85,7 @@ void CommonRobot::set_led_3(bool value) { common_internal->led_3 = value; }
 
 cv::Mat CommonRobot::get_camera()
 {
-    cv::Mat img = common_internal->get_camera();
-    if (img.empty()) return img;
-
-    // matches Python camera_image: rotate 180 then horizontal flip
-    cv::Mat rotated, flipped;
-    cv::rotate(img, rotated, cv::ROTATE_180);
-    cv::flip(rotated, flipped, 1);
-    return flipped;
+    return common_internal->get_camera();
 }
 
 // port is from 1 to 10 included
