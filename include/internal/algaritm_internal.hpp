@@ -43,7 +43,6 @@ public:
     std::vector<float> get_lidar();
 
     void set_servo_angle(float angle, int pin);
-    void set_output(int pin, bool value);
     void step_motor_move(int num, int steps, int steps_per_second, bool direction);
 
 private:

@@ -17,6 +17,9 @@ RobotAlgaritm::RobotAlgaritm(bool is_real_robot, DefaultAlgaritmConfiguration* c
 {
     algaritm_internal = new AlgaritmInternal(this, conf_internal);
 
+    // expose the internal digital outputs array directly (robot.outputs[pin] = value)
+    outputs = algaritm_internal->outputs;
+
     // Set the global instance pointer for signal handling
     current_instance = this;
     
@@ -177,20 +180,6 @@ std::vector<bool> RobotAlgaritm::get_inputs()
         algaritm_internal->inputs[0], algaritm_internal->inputs[1],
         algaritm_internal->inputs[2], algaritm_internal->inputs[3]
     };
-}
-
-std::vector<bool> RobotAlgaritm::get_outputs()
-{
-    return {
-        algaritm_internal->outputs[0], algaritm_internal->outputs[1],
-        algaritm_internal->outputs[2], algaritm_internal->outputs[3]
-    };
-}
-
-// pin is from 1 to 4 included
-void RobotAlgaritm::set_output(bool value, int pin)
-{
-    algaritm_internal->set_output(pin - 1, value);
 }
 
 cv::Mat RobotAlgaritm::get_camera()

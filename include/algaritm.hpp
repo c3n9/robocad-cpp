@@ -59,9 +59,8 @@ public:
     std::vector<bool> get_titan_limits();
 
     std::vector<bool> get_inputs();
-    std::vector<bool> get_outputs();
-    // pin is from 1 to 4 included
-    void set_output(bool value, int pin);
+
+    std::atomic<bool>* outputs = nullptr;
 
     // port is from 1 to 8 included
     void set_servo_angle(float angle, int pin);

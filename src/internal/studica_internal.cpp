@@ -81,15 +81,6 @@ public:
         if (stopped.exchange(true)) return;
         stop_thread = true;
         if (update_thread.joinable()) update_thread.join();
-
-        // The motor command set just before shutdown may still be sitting in the
-        // async TX pipeline (update loop -> talk channel, ~4 ms each). Push the
-        // latest state once more and give the talk channel a moment to transmit
-        // it before it is torn down, so a "set speed then return" is not lost.
-        if (connection) {
-            connection->set_data(build_tx());
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
     }
 
     void update_loop() {

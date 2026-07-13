@@ -114,15 +114,6 @@ public:
         if (stopped.exchange(true)) return;
         stop_thread = true;
         if (update_thread.joinable()) update_thread.join();
-
-        // The motor command set just before shutdown may still be sitting in the
-        // async TX pipeline (update loop -> talk channel, ~4 ms each). Push the
-        // latest state once more and give the talk channel a moment to transmit
-        // it before it is torn down, so a "set speed then return" is not lost.
-        if (connection) {
-            connection->set_data(build_tx());
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
     }
 
     void update_loop() {
@@ -563,11 +554,6 @@ std::vector<float> AlgaritmInternal::get_lidar()
 void AlgaritmInternal::set_servo_angle(float angle, int pin)
 {
     servo_angles[pin] = angle;
-}
-
-void AlgaritmInternal::set_output(int pin, bool value)
-{
-    if (pin >= 0 && pin < 4) outputs[pin] = value;
 }
 
 void AlgaritmInternal::step_motor_move(int num, int steps, int steps_per_second, bool direction)
