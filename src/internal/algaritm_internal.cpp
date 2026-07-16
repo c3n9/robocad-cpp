@@ -77,7 +77,7 @@ private:
         tx.speeds[1] = robot_internal->speed_motor_1;
         tx.speeds[2] = robot_internal->speed_motor_2;
         tx.speeds[3] = robot_internal->speed_motor_3;
-        for (int i = 0; i < 8; i++) tx.servo_angles[i] = robot_internal->servo_angles[i];
+        for (int i = 0; i < 8; i++) tx.servo_angles[i] = robot_internal->servo_angles[i] * 0.0011111f + 0.05f;
         tx.additional_servo_1 = robot_internal->additional_servo_1;
         tx.additional_servo_2 = robot_internal->additional_servo_2;
         tx.step1_steps = static_cast<float>(robot_internal->step_motor_1_steps);
