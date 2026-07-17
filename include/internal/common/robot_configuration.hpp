@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <string>
+#include "lidar_base.hpp"
 
 class RobotConfiguration
 {
@@ -9,6 +10,7 @@ public:
     uint8_t camera_index = 0;
     std::string lib_holder_first_path = "/home/pi";
     bool with_pi_blaster = true;
+    LidarTypes lidar_type = LidarTypes::N10_LIDAR;
     std::string lidar_port = "/dev/ttyUSB0";
 
     std::string sim_log_path = "./robocad.log";

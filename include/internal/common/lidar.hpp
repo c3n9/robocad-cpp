@@ -8,16 +8,20 @@
 #include <thread>
 #include <mutex>
 #include "robot.hpp"
+#include "lidar_base.hpp"
 
 // Port of robocad-py YDLidarX2 (lidar.py). Reads the YDLidar X2 serial stream,
 // decodes start/cloud packets and exposes 360 per-degree distances (mm).
 // NOTE: this is a fresh C++ implementation of the Python algorithm and needs
 // validation against real hardware.
-class YDLidarX2
+class YDLidarX2 : public LidarBase
 {
 public:
     YDLidarX2(Robot* robot, std::string port, int chunk_size = 2000);
     ~YDLidarX2();
+
+    void start() override;
+    void stop() override;
 
     bool connect();
     bool start_scan();
@@ -25,7 +29,7 @@ public:
     void disconnect();
 
     // 360 distances (one per degree); out_of_range value where no data.
-    std::vector<float> get_data();
+    std::vector<float> get_data() override;
 
 private:
     Robot* robot;

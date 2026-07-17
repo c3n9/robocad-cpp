@@ -5,6 +5,7 @@
 #include "updaters.hpp"
 #include "shared.hpp"
 #include "lidar.hpp"
+#include "n10_lidar.hpp"
 #include "robot_configuration.hpp"
 
 #include <thread>
@@ -33,7 +34,7 @@ private:
     LibHolder* lib_holder;
 
     cv::VideoCapture* camera_instance;
-    YDLidarX2* lidar_instance;
+    LidarBase* lidar_instance;
 
     std::thread* robot_info_thread;
 };
