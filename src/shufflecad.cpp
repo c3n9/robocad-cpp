@@ -514,7 +514,6 @@ void ConnectionHelper::stop_camera_udp_thread() {
 
 
 void ConnectionHelper::camera_udp_loop() {
-    long diag = 0;
     while (!stop_camera_udp) {
         try {
             CameraVariable* cam = nullptr;
@@ -528,12 +527,10 @@ void ConnectionHelper::camera_udp_loop() {
             }
 
             std::string target = camera_variables_channel->client_address;
-            size_t data_size = 0; bool is_jpeg = false; bool sent = false;
             if (cam != nullptr && !target.empty() && cam->width > 0 && cam->height > 0) {
                 std::vector<uint8_t> data = cam->get_value();
-                data_size = data.size();
-                is_jpeg = data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8;
-                if (is_jpeg) { send_frame_udp(target, (uint16_t)idx, data); sent = true; }
+                if (data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+                    send_frame_udp(target, (uint16_t)idx, data);
             }
         } catch (...) { }
 
