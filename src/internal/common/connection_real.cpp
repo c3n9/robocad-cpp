@@ -25,9 +25,11 @@ ConnectionReal::ConnectionReal(Robot* robot, Updater* updater, RobotConfiguratio
 
     try
     {
-        lidar_instance = new YDLidarX2(robot, conf->lidar_port);
-        lidar_instance->connect();
-        lidar_instance->start_scan();
+        if (conf->lidar_type == LidarTypes::YD_LIDAR_X2)
+            lidar_instance = new YDLidarX2(robot, conf->lidar_port);
+        else
+            lidar_instance = new N10Lidar(robot, conf->lidar_port);
+        lidar_instance->start();
     }
     catch (const std::exception& e)
     {
@@ -62,10 +64,7 @@ ConnectionReal::~ConnectionReal()
 void ConnectionReal::stop()
 {
     if (lidar_instance)
-    {
-        lidar_instance->stop_scan();
-        lidar_instance->disconnect();
-    }
+        lidar_instance->stop();
 
     updater->stop_robot_info_thread = true;
     if (robot_info_thread && robot_info_thread->joinable())

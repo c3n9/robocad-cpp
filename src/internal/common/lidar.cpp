@@ -39,6 +39,17 @@ YDLidarX2::~YDLidarX2()
     disconnect();
 }
 
+void YDLidarX2::start()
+{
+    if (connect()) start_scan();
+}
+
+void YDLidarX2::stop()
+{
+    stop_scan();
+    disconnect();
+}
+
 bool YDLidarX2::connect()
 {
 #ifndef _WIN32
