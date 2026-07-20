@@ -16,6 +16,7 @@ RobotVmxTitan::RobotVmxTitan(bool is_real_robot, DefaultStudicaConfiguration* co
     : Robot(is_real_robot, createDefaultConfIfNull(conf)) 
 {
     studica_internal = new StudicaInternal(this, conf_internal);
+    reseted_yaw_val = 0;
 
     // Set the global instance pointer for signal handling
     current_instance = this;
@@ -72,10 +73,15 @@ int32_t RobotVmxTitan::get_motor_enc_3()
     return studica_internal->enc_motor_3;
 }
 
-float RobotVmxTitan::get_yaw()
-{
-    return studica_internal->yaw;
+float RobotVmxTitan::get_yaw() 
+{ 
+    return rerangeAngle180(studica_internal->yaw - reseted_yaw_val); 
 }
+void RobotVmxTitan::reset_yaw() 
+{ 
+    reseted_yaw_val = get_yaw(); 
+}
+
 float RobotVmxTitan::get_us1()
 {
     return studica_internal->ultrasound_1;

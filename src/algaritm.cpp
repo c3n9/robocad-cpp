@@ -16,6 +16,9 @@ RobotAlgaritm::RobotAlgaritm(bool is_real_robot, DefaultAlgaritmConfiguration* c
     : Robot(is_real_robot, createDefaultConfIfNull(conf)) 
 {
     algaritm_internal = new AlgaritmInternal(this, conf_internal);
+    reseted_yaw_val = 0;
+    reseted_pitch_val = 0;
+    reseted_roll_val = 0;
 
     // expose the internal digital outputs array directly (robot.outputs[pin] = value)
     outputs = algaritm_internal->outputs;
@@ -77,15 +80,27 @@ int32_t RobotAlgaritm::get_motor_enc_3()
 
 float RobotAlgaritm::get_yaw()
 {
-    return algaritm_internal->yaw;
+    return rerangeAngle360(algaritm_internal->yaw - reseted_yaw_val);
+}
+void RobotAlgaritm::reset_yaw()
+{
+    reseted_yaw_val = get_yaw();
 }
 float RobotAlgaritm::get_pitch()
 {
-    return algaritm_internal->pitch;
+    return rerangeAngle360(algaritm_internal->pitch - reseted_pitch_val);
+}
+void RobotAlgaritm::reset_pitch()
+{
+    reseted_pitch_val = get_pitch();
 }
 float RobotAlgaritm::get_roll()
 {
-    return algaritm_internal->roll;
+    return rerangeAngle360(algaritm_internal->roll - reseted_roll_val);
+}
+void RobotAlgaritm::reset_roll()
+{
+    reseted_roll_val = get_roll();
 }
 float RobotAlgaritm::get_us1()
 {

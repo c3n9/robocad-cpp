@@ -16,6 +16,7 @@ CommonRobot::CommonRobot(bool is_real_robot, DefaultCommonConfiguration* conf)
     : Robot(is_real_robot, createDefaultConfIfNull(conf))
 {
     common_internal = new CommonRobotInternal(this, conf_internal);
+    reseted_yaw_val = 0;
 
     current_instance = this;
     signal(SIGINT, handler);
@@ -54,7 +55,15 @@ int32_t CommonRobot::get_motor_enc_5() { return common_internal->enc_motor_5; }
 int32_t CommonRobot::get_motor_enc_6() { return common_internal->enc_motor_6; }
 int32_t CommonRobot::get_motor_enc_7() { return common_internal->enc_motor_7; }
 
-float CommonRobot::get_yaw() { return common_internal->yaw; }
+float CommonRobot::get_yaw() 
+{ 
+    return rerangeAngle180(common_internal->yaw - reseted_yaw_val); 
+}
+void CommonRobot::reset_yaw() 
+{ 
+    reseted_yaw_val = get_yaw(); 
+}
+
 float CommonRobot::get_us1() { return common_internal->ultrasound_1; }
 float CommonRobot::get_us2() { return common_internal->ultrasound_2; }
 float CommonRobot::get_us3() { return common_internal->ultrasound_3; }

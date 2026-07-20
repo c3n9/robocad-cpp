@@ -32,8 +32,11 @@ public:
     int32_t get_motor_enc_3();
 
     float get_yaw();
+    void reset_yaw();
     float get_pitch();
+    void reset_pitch();
     float get_roll();
+    void reset_roll();
     float get_us1();
     float get_us2();
     float get_us3();
@@ -68,6 +71,9 @@ public:
 private:
     DefaultAlgaritmConfiguration* conf_internal;
     AlgaritmInternal* algaritm_internal;
+    float reseted_yaw_val;
+    float reseted_pitch_val;
+    float reseted_roll_val;
 
     DefaultAlgaritmConfiguration* createDefaultConfIfNull(DefaultAlgaritmConfiguration* conf)
     {
@@ -78,5 +84,14 @@ private:
         }
         conf_internal = conf;
         return conf;
+    }
+
+    float rerangeAngle360(float angle)
+    {
+        while (angle > 360)
+            angle -= 360;
+        while (angle < 0)
+            angle += 360;
+        return angle;
     }
 };

@@ -36,6 +36,7 @@ public:
     int32_t get_motor_enc_7();
 
     float get_yaw();
+    void reset_yaw();
     float get_us1();
     float get_us2();
     float get_us3();
@@ -64,6 +65,7 @@ public:
 private:
     DefaultCommonConfiguration* conf_internal;
     CommonRobotInternal* common_internal;
+    float reseted_yaw_val;
 
     DefaultCommonConfiguration* createDefaultConfIfNull(DefaultCommonConfiguration* conf)
     {
@@ -74,5 +76,14 @@ private:
         }
         conf_internal = conf;
         return conf;
+    }
+
+    float rerangeAngle180(float angle)
+    {
+        while (angle > 180)
+            angle -= 360;
+        while (angle < -180)
+            angle += 360;
+        return angle;
     }
 };
