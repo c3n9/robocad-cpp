@@ -77,7 +77,15 @@ private:
     ShflListenPort* joy_variables_channel;
 
     SocketInit net_guard;
-    std::atomic<int> camera_toggler = 0;
+
+    // Камеры: список (имя;ширина:высота) идёт по TCP, кадры — по UDP чанками.
+    static constexpr int CAMERA_UDP_PORT = 63260;
+    static constexpr int CAMERA_UDP_CHUNK = 1400;
+    socket_t camera_udp_sock = INVALID_SCT;
+    std::thread camera_udp_thread;
+    std::atomic<bool> stop_camera_udp{false};
+    std::atomic<int> selected_camera{0};
+    uint32_t camera_frame_id = 0;
 
     void start();
 
@@ -88,6 +96,11 @@ private:
     void on_rpi_vars();
     void on_camera_vars();
     void on_joy_vars();
+
+    void start_camera_udp();
+    void stop_camera_udp_thread();
+    void camera_udp_loop();
+    void send_frame_udp(const std::string& target, uint16_t camera_index, const std::vector<uint8_t>& data);
 };
 
 // global ini
@@ -234,6 +247,8 @@ public:
     std::vector<uint8_t> out_bytes;
     std::string str_from_client = "-1";
 
+    std::string client_address;
+
     BasePort(int p, std::function<void()> handler, float d)
         : port(p), event_handler(handler), delay(d) {}
 
@@ -264,7 +279,14 @@ public:
         if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) == SCT_ERROR) return INVALID_SCT;
         listen(server_fd, 1);
 
-        socket_t client = accept(server_fd, nullptr, nullptr);
+        sockaddr_in client_addr{};
+        socklen_t client_len = sizeof(client_addr);
+        socket_t client = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
+        if (client != INVALID_SCT) {
+            char ip_buf[INET_ADDRSTRLEN];
+            if (inet_ntop(AF_INET, &client_addr.sin_addr, ip_buf, sizeof(ip_buf)) != nullptr)
+                client_address = ip_buf;
+        }
         return client;
     }
 };
@@ -335,7 +357,7 @@ ConnectionHelper::ConnectionHelper(Shufflecad* sc, Robot* r) : shufflecad(sc), r
     chart_variables_channel = new ShflTalkPort(63255, std::bind(&ConnectionHelper::on_chart_vars, this), 0.002f);
     outcad_variables_channel = new ShflTalkPort(63257, std::bind(&ConnectionHelper::on_outcad_vars, this), 0.1f);
     rpi_variables_channel = new ShflTalkPort(63256, std::bind(&ConnectionHelper::on_rpi_vars, this), 0.5f);
-    camera_variables_channel = new ShflTalkPort(63254, std::bind(&ConnectionHelper::on_camera_vars, this), 0.03f, true);
+    camera_variables_channel = new ShflTalkPort(63254, std::bind(&ConnectionHelper::on_camera_vars, this), 0.03f);
     joy_variables_channel = new ShflListenPort(63259, std::bind(&ConnectionHelper::on_joy_vars, this), 0.004f);
 
     this->start();
@@ -367,6 +389,7 @@ void ConnectionHelper::start()
     rpi_variables_channel->start_talking();
     camera_variables_channel->start_talking();
     joy_variables_channel->start_listening();
+    start_camera_udp();
 }
 
 void ConnectionHelper::stop() {
@@ -377,6 +400,7 @@ void ConnectionHelper::stop() {
     rpi_variables_channel->stop();
     camera_variables_channel->stop();
     joy_variables_channel->stop();
+    stop_camera_udp_thread();
 }
 
 void ConnectionHelper::on_out_vars() {
@@ -455,33 +479,97 @@ void ConnectionHelper::on_rpi_vars() {
 }
 
 void ConnectionHelper::on_camera_vars() {
-    std::lock_guard<std::mutex> lock(data_mutex);
-    if (shufflecad->camera_variables_array.empty()) {
-        camera_variables_channel->out_string = "null";
-        camera_variables_channel->out_bytes = {'n','u','l','l'};
-        return;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+        if (shufflecad->camera_variables_array.empty()) {
+            camera_variables_channel->out_string = "null";
+        } else {
+            std::vector<std::string> segments;
+            for (CameraVariable* c : shufflecad->camera_variables_array) {
+                segments.push_back(c->name + ";" + std::to_string(c->width.load()) + ":" + std::to_string(c->height.load()));
+            }
+            camera_variables_channel->out_string = join(segments, "&");
+        }
     }
 
-    int requested_idx = -1;
     try {
-        requested_idx = std::stoi(camera_variables_channel->str_from_client);
-    } catch (...) { requested_idx = -1; }
+        selected_camera = std::stoi(camera_variables_channel->str_from_client);
+    } catch (...) { }
+}
 
-    int final_idx = 0;
-    if (requested_idx == -1) {
-        final_idx = camera_toggler;
-        camera_toggler = (camera_toggler + 1) % shufflecad->camera_variables_array.size();
-    } else {
-        final_idx = requested_idx % shufflecad->camera_variables_array.size();
+void ConnectionHelper::start_camera_udp() {
+    stop_camera_udp = false;
+    camera_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    camera_udp_thread = std::thread(&ConnectionHelper::camera_udp_loop, this);
+}
+
+void ConnectionHelper::stop_camera_udp_thread() {
+    stop_camera_udp = true;
+    if (camera_udp_sock != INVALID_SCT) {
+        closesocket(camera_udp_sock);
+        camera_udp_sock = INVALID_SCT;
     }
+    if (camera_udp_thread.joinable()) camera_udp_thread.join();
+}
 
-    CameraVariable* curr_var = shufflecad->camera_variables_array[final_idx];
-    
-    // name;width:height
-    std::string shape_str = std::to_string(curr_var->width) + ":" + std::to_string(curr_var->height);
-    camera_variables_channel->out_string = curr_var->name + ";" + shape_str;
-    
-    camera_variables_channel->out_bytes = curr_var->get_value();
+
+void ConnectionHelper::camera_udp_loop() {
+    long diag = 0;
+    while (!stop_camera_udp) {
+        try {
+            CameraVariable* cam = nullptr;
+            int idx = selected_camera;
+            {
+                std::lock_guard<std::mutex> lock(data_mutex);
+                if (!shufflecad->camera_variables_array.empty()) {
+                    if (idx < 0 || idx >= (int)shufflecad->camera_variables_array.size()) idx = 0;
+                    cam = shufflecad->camera_variables_array[idx];
+                }
+            }
+
+            std::string target = camera_variables_channel->client_address;
+            size_t data_size = 0; bool is_jpeg = false; bool sent = false;
+            if (cam != nullptr && !target.empty() && cam->width > 0 && cam->height > 0) {
+                std::vector<uint8_t> data = cam->get_value();
+                data_size = data.size();
+                is_jpeg = data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8;
+                if (is_jpeg) { send_frame_udp(target, (uint16_t)idx, data); sent = true; }
+            }
+        } catch (...) { }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    }
+}
+
+void ConnectionHelper::send_frame_udp(const std::string& target, uint16_t camera_index, const std::vector<uint8_t>& data) {
+    sockaddr_in dst{};
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(CAMERA_UDP_PORT);
+    if (inet_pton(AF_INET, target.c_str(), &dst.sin_addr) != 1) return;
+
+    uint32_t frame_id = camera_frame_id++;
+    int total = (int)((data.size() + CAMERA_UDP_CHUNK - 1) / CAMERA_UDP_CHUNK);
+    if (total < 1) total = 1;
+    if (total > 0xFFFF) return; 
+
+    for (int i = 0; i < total; i++) {
+        size_t off = (size_t)i * CAMERA_UDP_CHUNK;
+        size_t remaining = data.size() - off;
+        size_t len = remaining < (size_t)CAMERA_UDP_CHUNK ? remaining : (size_t)CAMERA_UDP_CHUNK;
+        std::vector<uint8_t> pkt(10 + len);
+        pkt[0] = (uint8_t)(frame_id & 0xFF);
+        pkt[1] = (uint8_t)((frame_id >> 8) & 0xFF);
+        pkt[2] = (uint8_t)((frame_id >> 16) & 0xFF);
+        pkt[3] = (uint8_t)((frame_id >> 24) & 0xFF);
+        pkt[4] = (uint8_t)(camera_index & 0xFF);
+        pkt[5] = (uint8_t)((camera_index >> 8) & 0xFF);
+        pkt[6] = (uint8_t)(i & 0xFF);
+        pkt[7] = (uint8_t)((i >> 8) & 0xFF);
+        pkt[8] = (uint8_t)(total & 0xFF);
+        pkt[9] = (uint8_t)((total >> 8) & 0xFF);
+        std::memcpy(pkt.data() + 10, data.data() + off, len);
+        sendto(camera_udp_sock, (const char*)pkt.data(), (int)pkt.size(), 0, (struct sockaddr*)&dst, sizeof(dst));
+    }
 }
 
 void ConnectionHelper::on_joy_vars() {
