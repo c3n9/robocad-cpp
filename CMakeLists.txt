@@ -83,3 +83,58 @@ if (BUILD_SHUFFLECAD_DEMO)
   endif()
 endif()
 
+# Unit/integration tests (analog of robocad-cs UnitTest), one GoogleTest binary
+# covering the Common, Studica (VmxTitan) and Algaritmika kits. These are HIL
+# tests: most assertions only pass with a real robot or the Shufflecad
+# companion app connected and feeding data over TCP (ports 63253-63259) -
+# without that, the *AtStartup non-zero checks fail and
+# ButtonsReactionOnUserInteraction times out after 30s, same as the C# port.
+# Disable with -DBUILD_UNIT_TESTS=OFF.
+option(BUILD_UNIT_TESTS "Build the UnitTest executable (GoogleTest)" ON)
+if (BUILD_UNIT_TESTS)
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.15.2
+  )
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+
+  enable_testing()
+
+  add_executable(UnitTest
+    "UnitTest/Common/RobotHandlerFixture.cpp"
+    "UnitTest/Common/TestAtStartup.cpp"
+    "UnitTest/Common/TestEnvironmentInteraction.cpp"
+    "UnitTest/Studica/RobotHandlerFixture.cpp"
+    "UnitTest/Studica/TestAtStartup.cpp"
+    "UnitTest/Studica/TestEnvironmentInteraction.cpp"
+    "UnitTest/Algaritmika/RobotHandlerFixture.cpp"
+    "UnitTest/Algaritmika/TestAtStartup.cpp"
+    "UnitTest/Algaritmika/TestEnvironmentInteraction.cpp"
+  )
+  target_include_directories(UnitTest PRIVATE "UnitTest")
+  target_link_libraries(UnitTest PRIVATE robocad-cpp GTest::gtest_main)
+  target_link_libraries(UnitTest PRIVATE ${OpenCV_LIBS})
+  target_link_libraries(UnitTest PRIVATE Threads::Threads)
+  if (CMAKE_VERSION VERSION_GREATER 3.12)
+    set_property(TARGET UnitTest PROPERTY CXX_STANDARD 20)
+  endif()
+
+  # A plain add_test (one ctest entry that runs the whole binary) rather than
+  # gtest_discover_tests: these are HIL tests sharing one live robot/Shufflecad
+  # session per kit (SetUpTestSuite/TearDownTestSuite), and gtest_discover_tests
+  # would register every TEST_F as its own ctest entry, re-invoking the exe
+  # (and re-opening/closing ports 63253-63259) separately per test. Run
+  # UnitTest.exe directly, optionally with --gtest_filter=..., to target
+  # individual tests or a single kit.
+  add_test(NAME UnitTest COMMAND UnitTest)
+
+  if (WIN32)
+    add_custom_command(TARGET UnitTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:opencv_world> $<TARGET_FILE_DIR:UnitTest>)
+  endif()
+endif()
+
